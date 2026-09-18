@@ -1,0 +1,6 @@
+{
+  "name": "Cyber Feedback Terminal - Abdurrahman",
+  "description": "Cyber Cinematic Feedback Portal dedicated to Abdurrahman - Cybersecurity & Red Team Operations",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
