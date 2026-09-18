@@ -85,7 +85,7 @@ export const Preloader: React.FC<PreloaderProps> = ({
             {progress}%
           </span>
           <span className="text-[10px] sm:text-xs font-mono text-slate-400 tracking-widest uppercase mt-0.5">
-            INITIALIZING SECURITY MATRIX
+            INITIALIZING FEEDBACK TERMINAL
           </span>
         </div>
 
@@ -139,13 +139,15 @@ export const Preloader: React.FC<PreloaderProps> = ({
         <div className="mt-5 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
           <span className="text-xs font-mono text-slate-400">
-            {progress < 40
-              ? 'Loading definitions...'
+            {progress < 25
+              ? 'Loading project dossiers & research logs...'
+              : progress < 55
+              ? 'Establishing real-time feedback telemetry...'
               : progress < 80
-              ? 'Calibrating CVSS v3.1...'
+              ? 'Syncing intelligence debriefs & audit stream...'
               : progress < 100
-              ? 'Syncing bounty benchmarks...'
-              : 'Ready'}
+              ? 'Authenticating device security node...'
+              : 'Terminal Ready // Mission Online'}
           </span>
         </div>
       </div>
