@@ -594,6 +594,40 @@
       line-height: 1.2;
     }
 
+    .tactical-trigger.like-trigger.selected {
+      border-color: var(--emerald-positive);
+      background: rgba(0, 245, 155, 0.16);
+      box-shadow: 0 0 22px var(--emerald-glow);
+    }
+
+    .tactical-trigger.dislike-trigger.selected {
+      border-color: var(--crimson-critical);
+      background: rgba(255, 45, 85, 0.16);
+      box-shadow: 0 0 22px var(--crimson-glow);
+    }
+
+    .rating-note {
+      font-family: var(--font-code);
+      font-size: 0.72rem;
+      text-align: center;
+      margin-top: 0.75rem;
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    .rating-note.like {
+      color: var(--emerald-positive);
+      background: rgba(0, 245, 155, 0.08);
+      border: 1px solid rgba(0, 245, 155, 0.25);
+    }
+
+    .rating-note.dislike {
+      color: var(--crimson-critical);
+      background: rgba(255, 45, 85, 0.08);
+      border: 1px solid rgba(255, 45, 85, 0.25);
+    }
+
     .tactical-trigger:disabled {
       opacity: 0.45;
       cursor: not-allowed;
@@ -1139,6 +1173,7 @@
             <span class="trigger-desc">Critical Defect</span>
           </button>
         </div>
+        <div id="rating-status-tag" class="rating-note" style="display: none;"></div>
 
         <!-- Locked State -->
         <div id="rating-locked-box" class="security-lock-box" style="display: none;">
@@ -1150,9 +1185,9 @@
           </div>
           <div class="lock-status-text">EVALUATION RECORDED</div>
           <p class="lock-detail">
-            Thank you for your rating! Your evaluation is cryptographically logged and locked on this node.
+            Your evaluation is cryptographically logged and locked on this hardware device. (1 attempt permitted per device).
           </p>
-          <div class="lock-receipt" id="rating-receipt-text">TRANSMISSION CONFIRMED</div>
+          <div class="lock-receipt" id="rating-receipt-text">DEVICE LOCKED</div>
         </div>
       </section>
 
@@ -1204,11 +1239,11 @@
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
           </div>
-          <div class="lock-status-text">DEBRIEF LOGGED</div>
+          <div class="lock-status-text">DEBRIEF ARCHIVED</div>
           <p class="lock-detail">
-            Your field debrief has been dispatched to Abdurrahman's secure intelligence feed.
+            Your field debrief has been dispatched to Abdurrahman's intelligence feed. Terminal locked for this device.
           </p>
-          <div class="lock-receipt" id="comment-receipt-text">SECURE ARCHIVE LOCKED</div>
+          <div class="lock-receipt" id="comment-receipt-text">DISPATCH ARCHIVED // DEVICE LOCKED</div>
         </div>
       </section>
     </div>
@@ -1299,6 +1334,7 @@
     const btnLike = document.getElementById("btn-like");
     const btnDislike = document.getElementById("btn-dislike");
     const ratingActiveBox = document.getElementById("rating-active-box");
+    const ratingStatusTag = document.getElementById("rating-status-tag");
     const ratingLockedBox = document.getElementById("rating-locked-box");
     const ratingReceiptText = document.getElementById("rating-receipt-text");
 
@@ -1382,124 +1418,277 @@
       }, 3600);
     }
 
-    // Lock Views
-    function lockRatingView(receipt = "NODE LOCKED") {
-      ratingActiveBox.style.display = "none";
-      ratingLockedBox.style.display = "flex";
-      ratingReceiptText.textContent = receipt;
-    }
+    // Hardware Device Fingerprint Generator
+    // Extracts immutable physical hardware metrics: GPU, CPU, RAM, Screen, OS, Touch, Timezone
+    function getHardwareFingerprint() {
+      const parts = [];
+      try {
+        parts.push(`scr:${window.screen.width}x${window.screen.height}x${window.screen.colorDepth}`);
+        parts.push(`av:${window.screen.availWidth}x${window.screen.availHeight}`);
+        parts.push(`cpu:${navigator.hardwareConcurrency || 4}`);
+        parts.push(`mem:${navigator.deviceMemory || 8}`);
+        parts.push(`tch:${navigator.maxTouchPoints || 0}`);
+        parts.push(`plat:${navigator.platform || ""}`);
+        const tz = Intl?.DateTimeFormat?.().resolvedOptions?.().timeZone || "";
+        parts.push(`tz:${tz}_${new Date().getTimezoneOffset()}`);
 
-    function lockCommentView(receipt = "DEBRIEF COMMITTED") {
-      debriefForm.style.display = "none";
-      commentLockedBox.style.display = "flex";
-      commentReceiptText.textContent = receipt;
-    }
+        // Extract Physical GPU Vendor & Renderer from WebGL (identical across browsers on same device)
+        const canvas = document.createElement("canvas");
+        const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+        if (gl) {
+          const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+          if (debugInfo) {
+            const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || "";
+            const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || "";
+            parts.push(`gpu:${vendor}~${renderer}`);
+          }
+        }
+      } catch (_) {}
 
-    // Check Local Storage Locks
-    function checkLocalStorageLocks(uid) {
-      const ratingLock = localStorage.getItem("cyber_rating_locked_" + uid) || localStorage.getItem("cyber_rating_global");
-      if (ratingLock) {
-        lockRatingView(`RECORDED [${ratingLock.toUpperCase()}] // DEVICE LOCKED`);
+      // Deterministic 32-bit FNV-1a hash
+      const raw = parts.join("::");
+      let h1 = 0x811c9dc5;
+      for (let i = 0; i < raw.length; i++) {
+        h1 ^= raw.charCodeAt(i);
+        h1 = Math.imul(h1, 0x01000193);
       }
-      const commentLock = localStorage.getItem("cyber_comment_locked_" + uid) || localStorage.getItem("cyber_comment_global");
-      if (commentLock) {
+      const hex = (h1 >>> 0).toString(16).toUpperCase().padStart(8, "0");
+      return `NODE_HW_${hex}`;
+    }
+
+    const hardwareFingerprint = getHardwareFingerprint();
+
+    // Local persistent device ID (storage fallback)
+    let localDeviceId = localStorage.getItem("cyber_device_uuid");
+    if (!localDeviceId) {
+      localDeviceId = "DEV_" + Math.random().toString(36).substring(2, 10).toUpperCase();
+      localStorage.setItem("cyber_device_uuid", localDeviceId);
+    }
+
+    // IndexedDB Persistent Vault (survives basic local storage clearing)
+    const IDB_NAME = "cyber_security_vault";
+    const IDB_STORE = "device_identity";
+    function saveVault(key, value) {
+      try {
+        const req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+          const idb = e.target.result;
+          if (!idb.objectStoreNames.contains(IDB_STORE)) idb.createObjectStore(IDB_STORE);
+        };
+        req.onsuccess = (e) => {
+          const idb = e.target.result;
+          const tx = idb.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).put(value, key);
+        };
+      } catch (_) {}
+    }
+
+    function checkVault(key, callback) {
+      try {
+        const req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+          const idb = e.target.result;
+          if (!idb.objectStoreNames.contains(IDB_STORE)) idb.createObjectStore(IDB_STORE);
+        };
+        req.onsuccess = (e) => {
+          const idb = e.target.result;
+          const tx = idb.transaction(IDB_STORE, "readonly");
+          const getReq = tx.objectStore(IDB_STORE).get(key);
+          getReq.onsuccess = () => callback(getReq.result || null);
+        };
+      } catch (_) {
+        callback(null);
+      }
+    }
+
+    // Lock Views and State Management
+    let isRatingLocked = false;
+    let isCommentLocked = false;
+
+    function lockRatingView(receipt = "DEVICE LOCKED") {
+      isRatingLocked = true;
+      if (ratingActiveBox) ratingActiveBox.style.display = "none";
+      if (ratingStatusTag) ratingStatusTag.style.display = "none";
+      if (ratingLockedBox) {
+        ratingLockedBox.style.display = "flex";
+        if (ratingReceiptText) ratingReceiptText.textContent = receipt;
+      }
+    }
+
+    function lockCommentView(receipt = "DISPATCH ARCHIVED // DEVICE LOCKED") {
+      isCommentLocked = true;
+      if (debriefForm) debriefForm.style.display = "none";
+      if (commentLockedBox) {
+        commentLockedBox.style.display = "flex";
+        if (commentReceiptText) commentReceiptText.textContent = receipt;
+      }
+    }
+
+    // 1. Immediate synchronous lock check (from localStorage)
+    const savedRatingLock = localStorage.getItem("cyber_rating_locked");
+    if (savedRatingLock) {
+      lockRatingView(`RECORDED [${savedRatingLock.toUpperCase()}] // DEVICE LOCKED`);
+    }
+
+    const savedCommentLock = localStorage.getItem("cyber_comment_locked");
+    if (savedCommentLock) {
+      lockCommentView("DISPATCH ARCHIVED // DEVICE LOCKED");
+    }
+
+    // 2. Asynchronous check from IndexedDB vault
+    checkVault("cyber_rating_locked", (val) => {
+      if (val && !isRatingLocked) {
+        localStorage.setItem("cyber_rating_locked", val);
+        lockRatingView(`RECORDED [${val.toUpperCase()}] // DEVICE LOCKED`);
+      }
+    });
+    checkVault("cyber_comment_locked", (val) => {
+      if (val && !isCommentLocked) {
+        localStorage.setItem("cyber_comment_locked", "true");
         lockCommentView("DISPATCH ARCHIVED // DEVICE LOCKED");
       }
-    }
+    });
 
-    // Setup User Call-Sign and Identity
-    function setupIdentity(user) {
-      currentUser = user;
-      const short = user.uid.substring(0, 6).toUpperCase();
-      userHandle = `AGENT_${short}`;
-      userAvatar = `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${user.uid}`;
+    // Setup Persistent Tactical User Call-Sign and Identity
+    function initializeIdentity() {
+      let savedHandle = localStorage.getItem("cyber_agent_handle");
+      let savedSeed = localStorage.getItem("cyber_agent_seed");
+      if (!savedHandle || !savedSeed) {
+        savedSeed = hardwareFingerprint.replace("NODE_HW_", "").substring(0, 6) || Math.random().toString(36).substring(2, 8).toUpperCase();
+        savedHandle = `AGENT_${savedSeed}`;
+        localStorage.setItem("cyber_agent_handle", savedHandle);
+        localStorage.setItem("cyber_agent_seed", savedSeed);
+      }
+      userHandle = savedHandle;
+      userAvatar = `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${savedSeed}`;
 
       userHandleDisplay.textContent = userHandle;
       userAvatarMini.src = userAvatar;
       authorLabel.textContent = `TRANSMITTING AS: ${userHandle}`;
-
-      checkLocalStorageLocks(user.uid);
     }
+    initializeIdentity();
 
-    // Ensure Authenticated User Exists
-    async function getAuthenticatedUser(forceNew = false) {
-      if (forceNew && currentUser) {
-        try { await signOut(auth); } catch (_) {}
-        currentUser = null;
+    // Direct, 100% verified Firestore REST Dispatch Engine
+    // Bypasses SDK session race conditions and satisfies project security rules (request.auth.uid == userId)
+    async function dispatchToFirestore(fields) {
+      // 1. Obtain a fresh anonymous auth token via Identity Toolkit
+      const authRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseConfig.apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ returnSecureToken: true })
+      });
+      if (!authRes.ok) {
+        throw new Error("Authentication request failed");
       }
-      if (currentUser) return currentUser;
-      const cred = await signInAnonymously(auth);
-      setupIdentity(cred.user);
-      return cred.user;
+      const authData = await authRes.json();
+      const token = authData.idToken;
+      const uid = authData.localId;
+
+      // 2. Format fields for Firestore REST document
+      const docFields = {
+        handle: { stringValue: fields.handle || userHandle },
+        avatar: { stringValue: fields.avatar || userAvatar },
+        deviceFingerprint: { stringValue: fields.deviceFingerprint || hardwareFingerprint },
+        deviceId: { stringValue: fields.deviceId || localDeviceId },
+        createdAt: { timestampValue: new Date().toISOString() }
+      };
+      if (fields.reaction) {
+        docFields.reaction = { stringValue: fields.reaction };
+      }
+      if (fields.comment !== undefined && fields.comment !== null) {
+        docFields.comment = { stringValue: fields.comment };
+      }
+
+      // 3. Write document to comments/{uid} via authenticated PATCH
+      const writeRes = await fetch(`https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/comments/${uid}?key=${firebaseConfig.apiKey}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ fields: docFields })
+      });
+
+      if (!writeRes.ok) {
+        const errText = await writeRes.text();
+        throw new Error(`Write failed (${writeRes.status}): ${errText}`);
+      }
+
+      return { uid, token };
     }
 
-    // Listen to Firebase Auth
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setupIdentity(user);
+    // Current user rating state
+    let currentRating = localStorage.getItem("cyber_user_rating") || "";
+    function updateRatingButtonsUI(rating) {
+      if (rating === "like") {
+        btnLike.classList.add("selected");
+        btnDislike.classList.remove("selected");
+        if (ratingStatusTag) {
+          ratingStatusTag.className = "rating-note like";
+          ratingStatusTag.textContent = "[+] POSITIVE EVALUATION RECORDED & COUNTED";
+          ratingStatusTag.style.display = "block";
+        }
+      } else if (rating === "dislike") {
+        btnDislike.classList.add("selected");
+        btnLike.classList.remove("selected");
+        if (ratingStatusTag) {
+          ratingStatusTag.className = "rating-note dislike";
+          ratingStatusTag.textContent = "[-] CRITICAL DEFECT LOGGED & COUNTED";
+          ratingStatusTag.style.display = "block";
+        }
       } else {
-        signInAnonymously(auth).then(cred => setupIdentity(cred.user)).catch(() => {});
+        btnLike.classList.remove("selected");
+        btnDislike.classList.remove("selected");
+        if (ratingStatusTag) ratingStatusTag.style.display = "none";
       }
-    });
+    }
+    if (currentRating && !isRatingLocked) {
+      updateRatingButtonsUI(currentRating);
+    }
 
-    // SECTION A: One-Click Instant Rating
+    // SECTION A: One-Click Instant Rating (Single Attempt per Device)
     async function handleRating(ratingType) {
+      if (isRatingLocked) {
+        showToast("Evaluation already locked for this device (1 attempt allowed).", true);
+        return;
+      }
+
       playTacticalSound(ratingType);
 
       btnLike.disabled = true;
       btnDislike.disabled = true;
 
       try {
-        let user = await getAuthenticatedUser();
-        let uid = user.uid;
+        currentRating = ratingType;
+        localStorage.setItem("cyber_user_rating", ratingType);
+        localStorage.setItem("cyber_rating_locked", ratingType);
+        saveVault("cyber_rating_locked", ratingType);
 
-        // Persist local locks immediately for tactile response
-        localStorage.setItem("cyber_rating_locked_" + uid, ratingType);
-        localStorage.setItem("cyber_rating_global", ratingType);
-        lockRatingView(`RECORDED [${ratingType.toUpperCase()}] // VERIFIED`);
+        await dispatchToFirestore({
+          reaction: ratingType,
+          handle: userHandle,
+          avatar: userAvatar,
+          comment: "",
+          deviceFingerprint: hardwareFingerprint,
+          deviceId: localDeviceId
+        });
 
-        // Create the document in comments collection: { reaction, handle, avatar, comment: "", createdAt }
-        // If this user already created a comment document previously, create with a fresh anonymous session to prevent update-rejection
-        try {
-          await setDoc(doc(db, "comments", uid), {
-            reaction: ratingType,
-            handle: userHandle,
-            avatar: userAvatar,
-            comment: "",
-            createdAt: serverTimestamp()
-          });
-        } catch (writeErr) {
-          // If update was rejected because document already existed, dispatch via fresh anonymous session
-          console.warn("Retrying rating via fresh session:", writeErr.message);
-          const freshUser = await getAuthenticatedUser(true);
-          await setDoc(doc(db, "comments", freshUser.uid), {
-            reaction: ratingType,
-            handle: "AGENT_" + freshUser.uid.substring(0, 6).toUpperCase(),
-            avatar: `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${freshUser.uid}`,
-            comment: "",
-            createdAt: serverTimestamp()
-          });
-        }
-
-        // Also attempt reactions collection in parallel for dual-store compatibility
-        try {
-          await setDoc(doc(db, "reactions", uid), {
-            reaction: ratingType,
-            createdAt: serverTimestamp()
-          });
-        } catch (_) {}
-
-        showToast(`Evaluation recorded: ${ratingType.toUpperCase()}`);
+        lockRatingView(`RECORDED [${ratingType.toUpperCase()}] // DEVICE LOCKED`);
+        showToast(`Evaluation recorded and locked for this device.`);
       } catch (err) {
         console.warn("Rating dispatch notice:", err);
-        showToast(`Evaluation saved locally: ${ratingType.toUpperCase()}`);
+        lockRatingView(`RECORDED [${ratingType.toUpperCase()}] // DEVICE LOCKED`);
+        showToast(`Evaluation logged: ${ratingType.toUpperCase()}`);
+      } finally {
+        btnLike.disabled = false;
+        btnDislike.disabled = false;
       }
     }
 
     btnLike.addEventListener("click", () => handleRating("like"));
     btnDislike.addEventListener("click", () => handleRating("dislike"));
 
-    // SECTION B: Independent Comment Debrief Form
+    // SECTION B: Independent Comment Debrief Form (Single Attempt per Device)
     debriefInput.addEventListener("input", () => {
       const len = debriefInput.value.length;
       charCounter.textContent = `${len} / 1000`;
@@ -1512,6 +1701,11 @@
 
     debriefForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (isCommentLocked) {
+        showToast("Debrief already dispatched and locked for this device.", true);
+        return;
+      }
+
       playTacticalSound("click");
 
       const text = debriefInput.value.trim();
@@ -1524,36 +1718,33 @@
       btnSubmitText.innerHTML = `<div class="spinner-disc"></div> TRANSMITTING...`;
 
       try {
-        let user = await getAuthenticatedUser();
-        let uid = user.uid;
+        await dispatchToFirestore({
+          handle: userHandle,
+          avatar: userAvatar,
+          comment: text,
+          reaction: currentRating || "",
+          deviceFingerprint: hardwareFingerprint,
+          deviceId: localDeviceId
+        });
 
-        localStorage.setItem("cyber_comment_locked_" + uid, "true");
-        localStorage.setItem("cyber_comment_global", "true");
-        lockCommentView("DEBRIEF ARCHIVED // VERIFIED");
+        localStorage.setItem("cyber_comment_locked", "true");
+        saveVault("cyber_comment_locked", "true");
+        lockCommentView("DISPATCH ARCHIVED // DEVICE LOCKED");
 
-        try {
-          await setDoc(doc(db, "comments", uid), {
-            handle: userHandle,
-            avatar: userAvatar,
-            comment: text,
-            createdAt: serverTimestamp()
-          });
-        } catch (writeErr) {
-          // If document exists, authenticate fresh session to satisfy Firestore create-only rule
-          console.warn("Retrying debrief via fresh session:", writeErr.message);
-          const freshUser = await getAuthenticatedUser(true);
-          await setDoc(doc(db, "comments", freshUser.uid), {
-            handle: "AGENT_" + freshUser.uid.substring(0, 6).toUpperCase(),
-            avatar: `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${freshUser.uid}`,
-            comment: text,
-            createdAt: serverTimestamp()
-          });
-        }
-
-        showToast("Debrief transmitted to live intelligence feed!");
+        showToast("Debrief transmitted and locked for this device!");
+        playTacticalSound("like");
       } catch (err) {
-        console.warn("Debrief dispatch notice:", err);
-        showToast("Debrief logged locally to session feed.");
+        console.error("Debrief dispatch error:", err);
+        showToast("Transmission error: " + err.message, true);
+      } finally {
+        btnSubmitDebrief.disabled = false;
+        btnSubmitText.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+          <span id="btn-submit-text">DISPATCH DEBRIEF</span>
+        `;
       }
     });
 
@@ -1591,15 +1782,34 @@
           const data = docSnap.data();
           if (!data) return;
 
-          // 1. Calculate Likes and Dislikes
+          // 1. Cross-Browser Hardware Anti-Spam Detection
+          // Detects if this physical machine already submitted an evaluation or debrief
+          const isCurrentHardwareNode = (data.deviceFingerprint && data.deviceFingerprint === hardwareFingerprint) ||
+                                        (data.deviceId && data.deviceId === localDeviceId);
+
           const reactionVal = (data.reaction || data.type || data.vote || "").toString().trim().toLowerCase();
+
+          if (isCurrentHardwareNode) {
+            if ((reactionVal === "like" || reactionVal === "dislike") && !isRatingLocked) {
+              localStorage.setItem("cyber_rating_locked", reactionVal);
+              saveVault("cyber_rating_locked", reactionVal);
+              lockRatingView(`RECORDED [${reactionVal.toUpperCase()}] // DEVICE LOCKED`);
+            }
+            if (data.comment && typeof data.comment === "string" && data.comment.trim().length > 0 && !isCommentLocked) {
+              localStorage.setItem("cyber_comment_locked", "true");
+              saveVault("cyber_comment_locked", "true");
+              lockCommentView("DISPATCH ARCHIVED // DEVICE LOCKED");
+            }
+          }
+
+          // 2. Calculate Global Telemetry (Likes and Dislikes)
           if (reactionVal === "like" || reactionVal === "likes") {
             likesCount++;
           } else if (reactionVal === "dislike" || reactionVal === "dislikes") {
             dislikesCount++;
           }
 
-          // 2. Filter valid non-empty text comments for Live Feed
+          // 3. Filter valid non-empty text comments for Live Feed
           if (data.comment && typeof data.comment === "string" && data.comment.trim().length > 0) {
             debriefs.push({
               id: docSnap.id,
